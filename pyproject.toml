@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autoyt"
+version = "0.1.0"
+description = "Daily automatic YouTube Shorts from long public streams and podcasts"
+requires-python = ">=3.11"
+dependencies = [
+  "requests>=2.31",
+  "PyYAML>=6.0",
+  "faster-whisper>=1.0.3",
+  "google-api-python-client>=2.120",
+  "google-auth-oauthlib>=1.2",
+  "google-auth-httplib2>=0.2",
+  "yt-dlp[default]>=2026.1.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+autoyt = "autoyt.main:main"
+
+[tool.setuptools]
+packages = ["autoyt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

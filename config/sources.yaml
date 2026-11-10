@@ -1,0 +1,108 @@
+# Channels to clip. Only PUBLIC videos are used (no login, no cookies, no members-only).
+# Any public video in the channel's history can be picked, not just the latest.
+#
+# permission values (the loader refuses entries without one):
+#   open_program_not_joined  creator runs a paid clipping program; we did NOT join it, so this is NOT a licence
+#   joined_program | direct_written | creative_commons   lower-risk, use when you have it
+#
+# Optional per-source keys: min_minutes, max_minutes, tabs (videos, streams), title_include / title_exclude
+# (regex lists), weight, layout (fit_blur | center_crop | custom), zoom, crop [x,y,w,h as 0-1 fractions].
+#
+# A claim, strike or takedown disables a source automatically (see `autoyt status`).
+
+- name: The Iced Coffee Hour
+  url: https://www.youtube.com/@TheIcedCoffeeHour
+  credit: The Iced Coffee Hour
+  categories: [informative]
+  permission: open_program_not_joined
+  layout: fit_blur
+  enabled: true
+
+- name: 2 Bears 1 Cave
+  # Episodes are on the YMH Studios channel, which also hosts other shows, hence the title filter.
+  url: https://www.youtube.com/channel/UCYIgiXwJck_Pb5Nj-wIrsqg
+  credit: 2 Bears 1 Cave (YMH Studios)
+  categories: [funny]
+  title_include: ["2 Bears,? 1 Cave"]
+  permission: open_program_not_joined
+  layout: fit_blur
+  enabled: true
+
+- name: Mark Manson
+  url: https://www.youtube.com/channel/UC0TnW9acNxqeojxXDMbohcA
+  credit: Mark Manson
+  categories: [deep]
+  permission: open_program_not_joined
+  layout: fit_blur
+  enabled: true
+
+- name: Nelk Boys
+  # Full Send Podcast is the Nelk Boys' long-form show.
+  url: https://www.youtube.com/channel/UChPuCAEXg7iYkVNjQY1NGYg
+  credit: Full Send Podcast (Nelk Boys)
+  categories: [funny]
+  permission: open_program_not_joined
+  layout: fit_blur
+  enabled: true
+
+- name: Kai Cenat
+  url: https://www.youtube.com/@KaiCenat
+  tabs: [videos, streams]
+  credit: Kai Cenat
+  categories: [funny]
+  permission: open_program_not_joined
+  layout: center_crop
+  enabled: true
+
+- name: Jake Paul
+  url: https://www.youtube.com/@jakepaul
+  credit: Jake Paul
+  categories: [funny, informative]
+  permission: open_program_not_joined
+  layout: center_crop
+  enabled: true
+
+- name: IShowSpeed
+  url: https://www.youtube.com/@IShowSpeed
+  tabs: [videos, streams]
+  credit: IShowSpeed
+  categories: [funny]
+  permission: open_program_not_joined
+  layout: center_crop
+  enabled: true
+
+- name: Lacy
+  url: https://www.youtube.com/channel/UCeoZXkaJDtdTHafgoZeDcAA
+  tabs: [videos, streams]
+  credit: Lacy
+  categories: [funny]
+  permission: open_program_not_joined
+  layout: center_crop
+  enabled: true
+
+- name: JShock
+  url: https://www.youtube.com/channel/UCV0U3ZfGPLRZL_qdz_FPhUA
+  tabs: [videos, streams]
+  credit: JShock
+  categories: [funny]
+  permission: open_program_not_joined
+  layout: center_crop
+  enabled: true
+
+- name: Braeden
+  url: https://www.youtube.com/channel/UCpc576jz701Yp109jIsM-5Q
+  tabs: [videos, streams]
+  credit: Braeden
+  categories: [funny]
+  permission: open_program_not_joined
+  layout: center_crop
+  enabled: true
+
+- name: TJR
+  # Informative trading talk. The AI is told to skip financial advice, and the validator bans risky words.
+  url: https://www.youtube.com/@TJRTrades
+  credit: TJR
+  categories: [informative]
+  permission: open_program_not_joined
+  layout: fit_blur
+  enabled: true

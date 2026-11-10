@@ -1,0 +1,16 @@
+# Tuning knobs. Anything missing falls back to the built-in default (see autoyt/config.py).
+# Operational settings (mode, clips per day, SMTP, keys) live in .env instead.
+clip:
+  min_seconds: 50
+  max_seconds: 55
+source:
+  min_minutes: 60      # most podcast episodes are 60-95 min; raise to 120 for only very long videos
+  max_minutes: 240
+  cooldown_days: 2     # avoid the same channel on back-to-back days
+layout:
+  font: DejaVu Sans
+ramp: [[0, 3], [7, 5], [14, 8]]   # [days since first upload, clips per day]
+retry:
+  step_delays: [60, 300, 900]     # seconds between the 3 retries of one step
+  run_attempts_per_day: 4
+  run_retry_minutes: 60

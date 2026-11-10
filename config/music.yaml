@@ -1,0 +1,15 @@
+# Background music: Kevin MacLeod (incompetech.com), CC BY 4.0. Monetized YouTube use is allowed with credit,
+# and the credit is added to every description automatically (as text, no link).
+#
+# Energetic, driving tracks, picked by measuring all candidates (loudness and steadiness) and keeping the
+# most intense. Each file's loudness is measured at download, so every track mixes at the same level under
+# speech (see audio.music_lufs in settings). The mix also ducks the music while someone talks.
+# `autoyt fetch-assets` downloads them once. Delete a track here and from assets/music/ to drop it.
+tracks:
+  - {title: "Volatile Reaction", url: "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Volatile%20Reaction.mp3"}    # -7.9 LUFS
+  - {title: "Cut and Run", url: "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Cut%20and%20Run.mp3"}              # -10.2
+  - {title: "Rocket Power", url: "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Rocket%20Power.mp3"}              # -10.4, very steady
+  - {title: "Aggressor", url: "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Aggressor.mp3"}                      # -10.6
+  - {title: "Heroic Age", url: "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Heroic%20Age.mp3"}                  # -12.1
+  - {title: "Crossing the Chasm", url: "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Crossing%20the%20Chasm.mp3"} # -12.8, steady
+  - {title: "Prelude and Action", url: "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Prelude%20and%20Action.mp3"} # -13.1

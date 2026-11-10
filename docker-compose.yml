@@ -1,0 +1,23 @@
+services:
+  autoyt:
+    build: .
+    image: autoyt:latest
+    container_name: autoyt
+    restart: unless-stopped
+    init: true
+    env_file: .env
+    # Run as your own user so files in ./data and ./assets stay yours (find yours with `id -u`).
+    user: "${AUTOYT_UID:-1000}:${AUTOYT_GID:-1000}"
+    cpus: 8
+    mem_limit: 6g
+    command: ["daemon"]
+    volumes:
+      - ./data:/app/data
+      - ./assets:/app/assets
+      - ./config:/app/config
+      - ./secrets:/app/secrets
+      # lets the daemon read battery level; harmless if your laptop has no battery
+      - /sys/class/power_supply:/host_power:ro
+    environment:
+      POWER_SUPPLY_DIR: /host_power
+      HOME: /app/data

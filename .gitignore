@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.env
+data/
+secrets/
+assets/music/*.mp3
+assets/gameplay/*/
+assets/gameplay/index.json
+.pytest_cache/

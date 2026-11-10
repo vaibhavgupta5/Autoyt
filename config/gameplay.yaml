@@ -1,0 +1,37 @@
+# Gameplay shown at the bottom. `autoyt fetch-gameplay` downloads once, converts to a muted 1080x770 file,
+# and every later run reuses them. Each stored file is only `clip_seconds` long (a clip needs at most 55 s),
+# taken from `skip_minutes` into the source video to skip its intro. About 20-30 MB per file.
+#
+# QUALITY RULES (the downloader enforces them):
+#   - only videos with a true 720p-class stream are accepted (short side >= 700 px), never 360p/480p
+#   - portrait (9:16) videos are tried first because they are natively sharp
+#   - portrait footage fills the panel width and keeps the lower part of the frame, where the runner is,
+#     instead of being stretched and cropped from the middle; low-res footage is shown whole over a blur
+#
+# Videos are found by search unless you give fixed `urls`. Run `autoyt fetch-gameplay` and check
+# assets/gameplay/index.json (it records each video's source size) to see what was chosen.
+# To pin your own picks, put YouTube watch URLs under `urls:`.
+clip_seconds: 60
+skip_minutes: 5
+min_source_minutes: 3
+focus: 0.68            # 0 = keep the top of a portrait frame, 1 = the bottom; 0.68 suits endless runners
+exclude_title: "react|reaction|tutorial|how to|tips|tricks|mod apk|hack|glitch|review"
+games:
+  subway_surfers:
+    count: 3
+    title_must_match: "subway"   # search results whose title lacks this are ignored
+    queries:
+      - "subway surfers gameplay no commentary vertical 9:16"
+      - "subway surfers gameplay no commentary 1 hour"
+      - "subway surfers gameplay no copyright no commentary"
+    urls:   # pinned by you, always tried first
+      - https://www.youtube.com/watch?v=QPW3XwBoQlw   # Subway Surfers 9:16, 720x1278
+  temple_run_2:
+    count: 3
+    title_must_match: "temple run"
+    queries:
+      - "temple run 2 gameplay no commentary vertical 9:16"
+      - "temple run 2 gameplay no commentary 1 hour"
+      - "temple run 2 gameplay no copyright no commentary"
+    urls:   # pinned by you, always tried first
+      - https://www.youtube.com/shorts/B2Xbgkn784c    # Temple Run 9:16 Short, 720x1280, only 21 s so it loops

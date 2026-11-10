@@ -1,0 +1,10 @@
+.venv
+.git
+data
+assets
+secrets
+.env
+tests
+__pycache__
+*.pyc
+PLAN.md

@@ -1,0 +1,37 @@
+{
+  "volatile_reaction.mp3": {
+    "title": "Volatile Reaction",
+    "credit": "Volatile Reaction by Kevin MacLeod. Licensed under Creative Commons: By Attribution 4.0",
+    "lufs": -7.9
+  },
+  "cut_and_run.mp3": {
+    "title": "Cut and Run",
+    "credit": "Cut and Run by Kevin MacLeod. Licensed under Creative Commons: By Attribution 4.0",
+    "lufs": -10.2
+  },
+  "rocket_power.mp3": {
+    "title": "Rocket Power",
+    "credit": "Rocket Power by Kevin MacLeod. Licensed under Creative Commons: By Attribution 4.0",
+    "lufs": -10.4
+  },
+  "aggressor.mp3": {
+    "title": "Aggressor",
+    "credit": "Aggressor by Kevin MacLeod. Licensed under Creative Commons: By Attribution 4.0",
+    "lufs": -10.6
+  },
+  "heroic_age.mp3": {
+    "title": "Heroic Age",
+    "credit": "Heroic Age by Kevin MacLeod. Licensed under Creative Commons: By Attribution 4.0",
+    "lufs": -12.1
+  },
+  "crossing_the_chasm.mp3": {
+    "title": "Crossing the Chasm",
+    "credit": "Crossing the Chasm by Kevin MacLeod. Licensed under Creative Commons: By Attribution 4.0",
+    "lufs": -12.8
+  },
+  "prelude_and_action.mp3": {
+    "title": "Prelude and Action",
+    "credit": "Prelude and Action by Kevin MacLeod. Licensed under Creative Commons: By Attribution 4.0",
+    "lufs": -13.1
+  }
+}
