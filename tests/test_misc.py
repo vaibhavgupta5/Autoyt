@@ -232,17 +232,17 @@ def test_music_is_brought_to_a_common_loudness(s):
 
 def test_archive_day_lets_a_day_run_again_and_keeps_uploaded_clips_tracked(s):
     db = Database(s.db_path)
-    db.ensure_run("2026-01-01")
-    db.update_run("2026-01-01", status="done", source="Show", video_id="abc")
-    db.add_clips("2026-01-01", [{"start": 1.0, "end": 53.0, "duration": 52.0, "heading": "h", "title": "t",
+    db.ensure_run("2026-01-01:podcast")
+    db.update_run("2026-01-01:podcast", status="done", source="Show", video_id="abc")
+    db.add_clips("2026-01-01:podcast", [{"start": 1.0, "end": 53.0, "duration": 52.0, "heading": "h", "title": "t",
                                  "description": "d", "category": "funny", "score": 15, "tags": ["x"]}])
-    db.mark_step("2026-01-01", "select")
-    assert db.archive_day("2026-01-01") == "2026-01-01#1"
-    assert db.get_run("2026-01-01") is None and db.get_run("2026-01-01#1")["video_id"] == "abc"
-    assert db.clips_for("2026-01-01") == [] and len(db.clips_for("2026-01-01#1")) == 1
-    assert not db.step_done("2026-01-01", "select") and db.step_done("2026-01-01#1", "select")
-    db.ensure_run("2026-01-01")
-    assert db.archive_day("2026-01-01") == "2026-01-01#2"
+    db.mark_step("2026-01-01:podcast", "select")
+    assert db.archive_day("2026-01-01:podcast") == "2026-01-01:podcast~1"
+    assert db.get_run("2026-01-01:podcast") is None and db.get_run("2026-01-01:podcast~1")["video_id"] == "abc"
+    assert db.clips_for("2026-01-01:podcast") == [] and len(db.clips_for("2026-01-01:podcast~1")) == 1
+    assert not db.step_done("2026-01-01:podcast", "select") and db.step_done("2026-01-01:podcast~1", "select")
+    db.ensure_run("2026-01-01:podcast")
+    assert db.archive_day("2026-01-01:podcast") == "2026-01-01:podcast~2"
 
 
 def test_upload_visibility_in_each_mode(tmp_path):

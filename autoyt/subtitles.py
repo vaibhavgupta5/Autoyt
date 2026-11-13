@@ -54,20 +54,34 @@ def _display(word: str) -> str:
     return _esc(re.sub(r"[,.;:]+$", "", word)).upper()
 
 
-def build_ass(clip_words: list[dict], heading: str, credit: str, duration: float, layout: dict) -> str:
-    """clip_words use times relative to the clip start."""
+def build_ass(clip_words: list[dict], heading: str, credit: str, duration: float, layout: dict,
+              anchor: str = "top", captions: bool = True, full: bool = False) -> str:
+    """clip_words use times relative to the clip start.
+
+    anchor="top": captions sit inside the source picture (`subtitle_y` for the split layout,
+    `full_subtitle_y` for full screen), never on the seam between the two panels. anchor="seam" is the
+    old position just above the seam. captions=False draws only the heading and credit (gameplay).
+    The credit shows for `credit_seconds` in the bottom-left of the source picture, then disappears.
+    """
     W, H = layout["width"], layout["height"]
     top_h = layout["top_height"]
     font = layout["font"]
     hs, ss = layout["heading_size"], layout["subtitle_size"]
-    sub_y = top_h - 40  # sits just above the seam between the two videos
+    if anchor == "seam":
+        sub_y = top_h - 40
+    elif full:
+        sub_y = int(layout.get("full_subtitle_y", 1240))
+    else:
+        sub_y = int(layout.get("subtitle_y", 620))
 
     lines = wrap_heading(_esc(heading))
     line_h = int(hs * 1.22)
-    box_h = len(lines) * line_h + 56
-    box_top, box_x, box_w = 140, 60, W - 120
+    box_h = len(lines) * line_h + 40
+    box_top, box_x, box_w = int(layout.get("heading_top", 120)), 60, W - 120
     heading_text = "\\N".join(lines)
-    credit_y = box_top + box_h + 14
+    # YouTube draws the channel name and description over the bottom ~300 px of a Short
+    credit_y = (H - 380) if full else (top_h - 64)
+    credit_end = _ts(min(duration, float(layout.get("credit_seconds", 1.5))))
 
     out = [
         "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {W}", f"PlayResY: {H}", "WrapStyle: 2",
@@ -90,10 +104,10 @@ def build_ass(clip_words: list[dict], heading: str, credit: str, duration: float
     out.append(f"Dialogue: 1,{_ts(0)},{end},Head,,0,0,0,,"
                f"{{\\an5\\pos({W // 2},{box_top + box_h // 2})}}{heading_text}")
     if credit:
-        out.append(f"Dialogue: 1,{_ts(0)},{end},Credit,,0,0,0,,"
-                   f"{{\\an7\\pos({box_x + 6},{credit_y})\\1a&H40&}}via {_esc(credit)}")
+        out.append(f"Dialogue: 1,{_ts(0)},{credit_end},Credit,,0,0,0,,"
+                   f"{{\\an7\\pos({box_x},{credit_y})\\1a&H40&}}via {_esc(credit)}")
 
-    groups = group_words(clip_words)
+    groups = group_words(clip_words) if captions else []
     for gi, g in enumerate(groups):
         group_end = g[-1]["e"] + 0.12
         if gi + 1 < len(groups):

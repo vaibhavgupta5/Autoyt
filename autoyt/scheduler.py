@@ -1,4 +1,9 @@
-"""Light polling loop: once a day, whenever the laptop is on, with retries."""
+"""Light polling loop: the day's batches at their planned times, whenever the laptop is on, with retries.
+
+Each tick starts at most ONE batch, so a laptop that was off for hours drains its overdue batches one per
+poll instead of all at once. Between batches it does the cheap daily chores (view stats, comments,
+gameplay library upkeep).
+"""
 from __future__ import annotations
 
 import logging
@@ -9,6 +14,7 @@ from pathlib import Path
 
 from .config import Settings
 from .db import Database
+from .kinds import FINISHED, next_due_batch, plan_day
 from .pipeline import Runner, today
 
 log = logging.getLogger("autoyt.scheduler")
@@ -42,24 +48,56 @@ def preconditions(s: Settings) -> tuple[bool, str]:
     return True, "ok"
 
 
-def tick(s: Settings, db: Database, runner: Runner) -> str:
+def chores(s: Settings, db: Database, runner) -> None:
+    """Cheap background work while no batch is due. Every part is best effort."""
+    svc_fn = getattr(runner, "_svc", None)
     day = today(s)
-    run = db.get_run(day)
-    if run and run["status"] in ("done", "failed", "skipped"):
+    if s.mode != "dry_run" and svc_fn is not None:
+        from . import stats
+        try:
+            if db.kv_get("stats_day") != day:
+                stats.fetch(s, db, svc_fn())
+                db.kv_set("stats_day", day)
+            stats.post_due_comments(s, db, svc_fn())
+        except Exception as e:  # noqa: BLE001
+            log.warning("stats/comments skipped: %s", e)
+    if db.kv_get("library_day") != day and svc_fn is not None:
+        from . import assets
+        db.kv_set("library_day", day)  # once a day, even if it fails
+        try:
+            assets.ensure_library(s)
+        except Exception as e:  # noqa: BLE001
+            log.warning("gameplay library upkeep skipped: %s", e)
+
+
+def tick(s: Settings, db: Database, runner, now: float | None = None) -> str:
+    now = time.time() if now is None else now
+    day = today(s)
+    plan = plan_day(s, db, day=day, now=now)
+    if all((r := db.get_run(b.key)) and r["status"] in FINISHED for b in plan):
+        chores(s, db, runner)
         return "idle"
-    if run and run["next_try_at"] and run["next_try_at"] > time.time():
-        return "waiting"
     ok, why = preconditions(s)
     if not ok:
-        log.info("not starting today's run: %s", why)
+        log.info("not starting a batch: %s", why)
         return f"blocked: {why}"
-    log.info("starting run for %s (mode=%s)", day, s.mode)
-    return runner.attempt(day)
+    if float(db.kv_get("bot_block_until", "0") or 0) > now:
+        return "blocked: youtube bot check (backing off)"
+    batch = next_due_batch(s, db, day=day, now=now)
+    if batch is None:
+        chores(s, db, runner)
+        return "waiting"
+    log.info("starting batch %s (%d clips, mode=%s)", batch.key, batch.clips, s.mode)
+    return runner.attempt(batch.key)
 
 
 def daemon(s: Settings) -> None:
     try:
-        os.nice(10)
+        os.nice(10)  # the laptop's own work always wins the CPU
+    except OSError:
+        pass
+    try:  # and the disk: idle-class I/O for ffmpeg, yt-dlp and Whisper
+        os.system(f"ionice -c 3 -p {os.getpid()} >/dev/null 2>&1")
     except OSError:
         pass
     db = Database(s.db_path)

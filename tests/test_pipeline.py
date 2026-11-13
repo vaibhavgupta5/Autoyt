@@ -45,10 +45,12 @@ def env(tmp_path, monkeypatch):
     s.ensure_dirs()
     s.cfg["layout"]["preset"] = "ultrafast"
     s.cfg["retry"]["step_delays"] = [0, 0, 0]
+    s.cfg["source"]["max_whisper_minutes"] = 0   # the fake 3 h video has no captions; allow the Whisper path
+    s.config_dir.mkdir(parents=True, exist_ok=True)
     db = Database(s.db_path)
     calls = {"uploads": [], "thumbs": [], "emails": [], "picks": 0}
 
-    def fake_pick(s_, db_, rng=None):
+    def fake_pick(s_, db_, rng=None, kind="podcast"):
         calls["picks"] += 1
         return Picked({"name": "Test Show", "credit": "Test Show"}, f"vid{calls['picks']}", "A long episode",
                       3 * 3600.0, "https://www.youtube.com/watch?v=vid")
@@ -76,7 +78,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(ytdlp, "download_section", _fake_section)
     monkeypatch.setattr(pipeline, "collect_candidates", lambda *a, **k: _cands())
     monkeypatch.setattr(upload, "upload_video", fake_upload)
-    monkeypatch.setattr(upload, "set_thumbnail", lambda svc, vid, jpg: calls["thumbs"].append(vid) or True)
+    monkeypatch.setattr(upload, "set_thumbnail", lambda svc, vid, jpg, *a: calls["thumbs"].append(vid) or True)
     monkeypatch.setattr(pipeline, "notify_once", lambda s_, db_, day, kind, subj, body: calls["emails"].append((kind, subj)))
     runner = Runner(s, db, sleep=lambda x: None, service_factory=lambda s_: object())
     return s, db, runner, calls
@@ -93,7 +95,7 @@ def test_full_scheduled_day_uploads_and_deletes_local_clips(env):
     # scheduled, in order, in the future
     pubs = [u["publish_at"] for u in calls["uploads"]]
     assert pubs == sorted(pubs) and all(pubs)
-    assert calls["uploads"][0]["title"].endswith("#shorts")
+    assert "#shorts" not in calls["uploads"][0]["title"]  # hashtags live in the description
     desc = calls["uploads"][0]["description"]
     assert "http" not in desc and "youtu" not in desc and "spam.example.com" not in desc, desc  # no links at all
     assert "#shorts" in desc and "Clip from Test Show" in desc
@@ -164,7 +166,7 @@ def test_captions_path_skips_full_whisper_and_uses_whisper_only_on_clip_slices(e
         return p
 
     monkeypatch.setattr(ytdlp, "download_captions", fake_captions)
-    monkeypatch.setattr(pipeline, "pick_video", lambda s_, db_, rng=None: Picked(
+    monkeypatch.setattr(pipeline, "pick_video", lambda s_, db_, rng=None, kind="podcast": Picked(
         {"name": "Test Show", "credit": "Test Show"}, "vid1", "A short episode", 700.0, "https://www.youtube.com/watch?v=vid"))
 
     def boom(*a, **k):

@@ -1,6 +1,14 @@
 # AutoYT
 
-Picks one long public English stream or podcast a day, cuts 50–55 s funny, informative or deep clips with AI, adds captions, a heading, music and gameplay, and uploads them to YouTube. Design, risks and status are in [PLAN.md](PLAN.md).
+Cuts YouTube Shorts automatically, in small batches spread over the day, in three kinds:
+
+| Kind | Source | Clip | Look |
+|---|---|---|---|
+| `podcast` | long public streams and podcasts | 50–55 s funny, informative or deep moments | split screen: speaker on top, gameplay below, captions, quiet music |
+| `gta6_talk` | creators talking about GTA 6 (news, breakdowns, opinions) | 25–45 s | full screen, word captions, source speech only |
+| `gta6_gameplay` | GTA gameplay videos: GTA 5 / GTA Online until 18 Nov 2026, GTA 6 from launch day (19 Nov) | 20–45 s loud action moments | full screen, hook heading, original game audio |
+
+Volume grows only when views do, videos go public in the US evening, and a daily stats pass feeds back into what gets picked. Design, risks and status are in [PLAN.md](PLAN.md); the GTA plan and its reach addendum are in [docs/superpowers/plans/2026-11-10-gta6-expansion.md](docs/superpowers/plans/2026-11-10-gta6-expansion.md).
 
 ## Start (about 15 minutes of setup)
 
@@ -63,15 +71,25 @@ To preview real clips first, set `AUTOYT_MODE=dry_run` and run `docker compose r
 docker compose up -d
 ```
 
-It starts at boot, checks every 15 minutes, and runs once a day while the laptop is on.
+It starts at boot, checks every 15 minutes, and runs the day's batches at random times between 08:00 and 22:00 while the laptop is on (one batch per check, never a burst). Two containers run: `autoyt` (at most 3 cores and 3 GB, low priority) and `autoyt-bgutil`, a small token server that keeps YouTube from asking "are you a bot" (no cookies, no login).
+
+**7. Optional: comments and retention stats**
+
+```bash
+docker compose run --rm -p 8765:8765 autoyt auth --extended
+```
+
+This adds two permissions: posting one question comment under each video once it is public, and reading average view percentage. Without it both features stay off by themselves.
 
 ## Everyday commands
 
 | Command | What it does |
 |---|---|
 | `docker compose logs -f` | Watch what it is doing |
-| `docker compose exec autoyt autoyt status` | Recent runs, clips, disabled sources |
-| `docker compose exec autoyt autoyt run --force` | Re-run today's job (resumes the same video, never re-uploads finished clips) |
+| `docker compose exec autoyt autoyt status` | Today's batch plan, growth levels, recent runs and clips, bot back-off, disabled sources |
+| `docker compose exec autoyt autoyt stats` | Fetch view counts now and print the 7-day performance summary |
+| `docker compose exec autoyt autoyt run --force` | Run all of today's batches now (resumes, never re-uploads finished clips) |
+| `docker compose exec autoyt autoyt run --day 2026-11-12:gta6_talk` | Run one batch |
 | `docker compose run --rm autoyt run --fresh` | Archive today's run and do a brand-new one with your normal mode (stop the daemon first: `docker compose stop`) |
 | `docker compose exec autoyt autoyt check-sources` | Count eligible videos per channel |
 | `touch data/PAUSE` / `rm data/PAUSE` | Pause or resume without stopping the container |
@@ -81,7 +99,7 @@ Edit channels in `config/sources.yaml`, music in `config/music.yaml`, and gamepl
 
 ## Troubleshooting
 
-**"Sign in to confirm you're not a bot" in the logs.** YouTube is rate-limiting your IP, usually after a burst of requests such as first-time setup (listing all channels, downloading the gameplay library). It normally clears within a few hours. The daily run retries on its own, and `fetch-gameplay` skips what it already has, so just run it again later. The app never uses cookies or a login by default. If the block keeps coming back during normal daily use, you can opt in yourself with `YTDLP_ARGS=--cookies-from-browser firefox` in `.env`, but that ties downloads to your Google account, which carries its own risk.
+**"Sign in to confirm you're not a bot" in the logs.** YouTube is rate-limiting your IP. The pipeline now treats this as a pause for everything (2 h, then 4 h, then 8 h), never blames the video, and emails you if it lasts more than 6 hours. Check that the token server runs (`docker compose logs bgutil-provider`) and pull a newer yt-dlp (`docker compose build --pull && docker compose up -d`). The app never uses cookies or a login by default. If the block keeps coming back during normal daily use, you can opt in yourself with `YTDLP_ARGS=--cookies-from-browser firefox` in `.env`, but that ties downloads to your Google account, which carries its own risk.
 
 ## Development
 

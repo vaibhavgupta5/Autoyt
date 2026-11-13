@@ -121,16 +121,26 @@ def build_clip(sentences, words, cand: dict, cfg: dict, banned: list[str]) -> di
     start = max(0.0, seg[0]["s"] - cfg["pad_start"])
     end = seg[-1]["e"] + cfg["pad_end"]
     try:
-        score = float(cand.get("hook_score", 5)) + float(cand.get("standalone_score", 5))
+        hook = float(cand.get("hook_score", 5))
+        score = hook + float(cand.get("standalone_score", 5))
     except (TypeError, ValueError):
-        score = 10.0
+        hook, score = 5.0, 10.0
+    total = float(cfg.get("source_duration") or 0)
+    if total and hook < 9:  # intros and outros: greetings, sponsor reads, "subscribe" - rarely a hook
+        if start < float(cfg.get("skip_intro_seconds", 0)) or end > total - float(cfg.get("skip_outro_seconds", 0)):
+            return None
+    try:  # a loopable ending only breaks ties, it never outranks a better clip
+        score += max(0.0, min(10.0, float(cand.get("loop_score") or 0))) * 0.05
+    except (TypeError, ValueError):
+        pass
     if score < cfg.get("min_score", 0):  # the model's own honesty check, enforced in code
         return None
     if not fit["clean"]:
         score -= 3
     return {"start": round(start, 2), "end": round(end, 2), "duration": round(end - start, 2),
             "heading": heading, "title": title, "description": description, "context_line": context,
-            "tags": tags, "category": category, "score": score, "text": text, "w0": w0, "w1": w1}
+            "tags": tags, "category": category, "score": score, "text": text, "w0": w0, "w1": w1,
+            "comment_question": strip_links(cand.get("comment_question"))[:200]}
 
 
 def pick_best(clips: list[dict], n: int, cfg: dict) -> list[dict]:
@@ -192,3 +202,36 @@ def validate_and_pick(sentences: list[dict], words: list[dict], candidates: list
             built.append(c)
     log.info("%d of %d candidates passed validation", len(built), len(candidates))
     return pick_best(built, n, cfg)
+
+
+def music_ratio(media) -> float:
+    """Share (0..1) of a clip's 1-second frames that sound like music or a steady tone rather than speech.
+
+    Speech is bursty: syllables and pauses make its loudness swing several times a second, so the
+    coefficient of variation of 50 ms loudness inside one second is high (typically > 0.5). Music beds,
+    trailer scores and tones are steady (< 0.3). Silent frames are ignored. A cheap heuristic: no model,
+    one ffmpeg decode of the 25-45 s slice.
+    """
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    import numpy as np
+
+    from .transcribe import load_wav
+
+    with tempfile.TemporaryDirectory() as d:
+        wav = Path(d) / "m.wav"
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(media), "-vn", "-ac", "1", "-ar", "16000",
+                        "-c:a", "pcm_s16le", str(wav)], check=True, timeout=120)
+        x = load_wav(wav)
+    sub, per = 800, 20  # 50 ms pieces, 20 per second
+    n = x.size // (sub * per)
+    if n == 0:
+        return 0.0
+    rms = np.sqrt(np.mean(np.square(x[: n * sub * per].reshape(n, per, sub)), axis=2))
+    loud = rms.mean(axis=1) > 0.01
+    if not loud.any():
+        return 0.0
+    cv = rms.std(axis=1) / np.maximum(rms.mean(axis=1), 1e-6)
+    return float(((cv < 0.3) & loud).sum() / loud.sum())

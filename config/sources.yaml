@@ -106,3 +106,153 @@
   permission: open_program_not_joined
   layout: fit_blur
   enabled: true
+
+# ======================================================================================== GTA feed
+# kind: gta6_talk      people talking about GTA 6 (news, breakdowns, opinions). Full screen, word captions,
+#                      source speech only. Titles must mention GTA 6; trailer breakdowns and reactions are
+#                      excluded because they carry Rockstar's trailer footage and licensed music.
+# kind: gta6_gameplay  loud action moments from gameplay videos. Full screen, no captions, original audio.
+#                      Until 18 Nov 2026 it uses GTA 5 / GTA Online footage, labelled "GTA 5" everywhere
+#                      (`game_label`); from 19 Nov (GTA VI launch) it switches to GTA 6 footage by itself.
+# Leaked or dev-build footage is never used whatever the title says (hard block in code).
+# permission: fair_use_credit = commentary/news clipped with credit and a removal note (owner's decision).
+
+- name: Mrbossftw (GTA 6 talk)
+  url: https://www.youtube.com/@Mrbossftw
+  credit: Mrbossftw
+  kind: gta6_talk
+  categories: [informative]
+  title_include: ["GTA ?6", "GTA ?VI"]
+  title_exclude: ["react", "reaction", "responds", "trailer"]
+  min_minutes: 6
+  max_minutes: 60
+  max_items: 400      # recent uploads only: lighter listing
+  permission: fair_use_credit
+  enabled: true
+
+- name: DarkViperAU (GTA 6 talk)
+  url: https://www.youtube.com/@DarkViperAU
+  credit: DarkViperAU
+  kind: gta6_talk
+  categories: [informative, deep]
+  title_include: ["GTA ?6", "GTA ?VI"]
+  title_exclude: ["react", "reaction", "responds", "trailer"]
+  min_minutes: 6
+  max_minutes: 90
+  max_items: 400      # recent uploads only: lighter listing
+  permission: fair_use_credit
+  enabled: true
+
+- name: KiwiTalkz (GTA 6 talk)
+  # Podcast with ex-Rockstar developers; only its GTA 6 episodes and segments.
+  url: https://www.youtube.com/@KiwiTalkz
+  credit: KiwiTalkz
+  kind: gta6_talk
+  categories: [informative, deep]
+  title_include: ["GTA ?6", "GTA ?VI", "Rockstar"]
+  title_exclude: ["react", "reaction", "responds", "trailer"]
+  min_minutes: 4
+  max_minutes: 120
+  max_items: 400      # recent uploads only: lighter listing
+  permission: fair_use_credit
+  enabled: true
+
+- name: GTA Series Videos (GTA 6 talk)
+  url: https://www.youtube.com/@GTASeriesVideos
+  credit: GTA Series Videos
+  kind: gta6_talk
+  categories: [informative]
+  title_include: ["GTA ?6", "GTA ?VI"]
+  title_exclude: ["react", "reaction", "responds", "trailer", "screenshots"]
+  min_minutes: 4
+  max_minutes: 60
+  max_items: 400      # recent uploads only: lighter listing
+  permission: fair_use_credit
+  enabled: true
+
+# ---- gameplay, GTA 5 / GTA Online, until the GTA VI launch
+- name: GTA Series Videos (GTA Online gameplay)
+  url: https://www.youtube.com/@GTASeriesVideos
+  credit: GTA Series Videos
+  kind: gta6_gameplay
+  game_label: GTA 5
+  title_include: ["GTA Online", "GTA ?5", "GTA ?V\\b"]
+  title_exclude: ["trailer", "react"]
+  min_minutes: 6
+  max_minutes: 90
+  until: "2026-11-18"
+  max_items: 400      # recent uploads only: lighter listing
+  permission: fair_use_credit
+  enabled: true
+
+- name: DarkViperAU (GTA 5 gameplay)
+  url: https://www.youtube.com/@DarkViperAU
+  credit: DarkViperAU
+  kind: gta6_gameplay
+  game_label: GTA 5
+  title_include: ["GTA ?5", "GTA ?V\\b", "Career Progress", "Chaos Mod"]
+  title_exclude: ["GTA ?6", "GTA ?VI", "trailer", "react"]
+  min_minutes: 8
+  max_minutes: 90
+  until: "2026-11-18"
+  max_items: 400      # recent uploads only: lighter listing
+  permission: fair_use_credit
+  enabled: true
+
+# ---- gameplay, GTA 6, from launch day
+- name: MKIceAndFire (GTA 6 gameplay)
+  # No-commentary walkthrough parts: pure game audio.
+  url: https://www.youtube.com/@MKIceAndFire
+  credit: MKIceAndFire
+  kind: gta6_gameplay
+  game_label: GTA 6
+  title_include: ["GTA ?6", "GTA ?VI", "Grand Theft Auto VI"]
+  title_exclude: ["trailer", "react"]
+  min_minutes: 8
+  max_minutes: 150
+  after: "2026-11-19"
+  max_items: 400      # recent uploads only: lighter listing
+  permission: fair_use_credit
+  enabled: true
+
+- name: Shirrako (GTA 6 gameplay)
+  url: https://www.youtube.com/@Shirrako
+  credit: Shirrako
+  kind: gta6_gameplay
+  game_label: GTA 6
+  title_include: ["GTA ?6", "GTA ?VI", "Grand Theft Auto VI"]
+  title_exclude: ["trailer", "react"]
+  min_minutes: 8
+  max_minutes: 150
+  after: "2026-11-19"
+  max_items: 400      # recent uploads only: lighter listing
+  permission: fair_use_credit
+  enabled: true
+
+- name: theRadBrad (GTA 6 gameplay)
+  url: https://www.youtube.com/@theRadBrad
+  credit: theRadBrad
+  kind: gta6_gameplay
+  game_label: GTA 6
+  title_include: ["GTA ?6", "GTA ?VI", "Grand Theft Auto VI"]
+  title_exclude: ["trailer", "react"]
+  min_minutes: 8
+  max_minutes: 150
+  after: "2026-11-19"
+  max_items: 400      # recent uploads only: lighter listing
+  permission: fair_use_credit
+  enabled: true
+
+- name: DarkViperAU (GTA 6 gameplay)
+  url: https://www.youtube.com/@DarkViperAU
+  credit: DarkViperAU
+  kind: gta6_gameplay
+  game_label: GTA 6
+  title_include: ["GTA ?6", "GTA ?VI"]
+  title_exclude: ["trailer", "react", "30FPS", "physical edition", "look's better"]
+  min_minutes: 15
+  max_minutes: 150
+  after: "2026-11-19"
+  max_items: 400      # recent uploads only: lighter listing
+  permission: fair_use_credit
+  enabled: true

@@ -9,7 +9,9 @@ source:
   cooldown_days: 2     # avoid the same channel on back-to-back days
 layout:
   font: DejaVu Sans
-ramp: [[0, 3], [7, 5], [14, 8]]   # [days since first upload, clips per day]
+# Volume now follows views, not days: see `growth` (levels and thresholds) in autoyt/config.py.
+# Override here, e.g.  growth: {thresholds: [30, 100]}
+# Publish window (audience time):  slots: {audience_tz: America/New_York, publish_window: ["11:00", "23:00"]}
 retry:
   step_delays: [60, 300, 900]     # seconds between the 3 retries of one step
   run_attempts_per_day: 4

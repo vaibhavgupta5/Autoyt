@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from autoyt.config import DEFAULTS, Settings, load_settings
 from autoyt.db import Database
-from autoyt.pipeline import Runner, clips_target, slot_gap_minutes
+from autoyt.pipeline import Runner, clips_target
 from autoyt.scheduler import battery_state, preconditions
 from autoyt.subtitles import build_ass, clip_relative_words, group_words, wrap_heading
 
@@ -44,10 +44,11 @@ def _settings(tmp_path, monkeypatch, **env):
 
 
 def test_slot_gap():
+    from autoyt.slots import gap_minutes
     s = Settings(home=None, cfg=DEFAULTS)  # type: ignore[arg-type]
-    assert slot_gap_minutes(s, 8) == 171
-    assert slot_gap_minutes(s, 3) == 180
-    assert slot_gap_minutes(s, 30) == 45
+    assert gap_minutes(s, 8) == 90      # 12 h window / 8
+    assert gap_minutes(s, 3) == 120     # capped at max_gap
+    assert gap_minutes(s, 30) == 30     # floored at min_gap
 
 
 def test_slots_increase_and_future(tmp_path, monkeypatch):
@@ -59,20 +60,16 @@ def test_slots_increase_and_future(tmp_path, monkeypatch):
     first = datetime.strptime(slots[0], "%Y-%m-%dT%H:%M:%S.000Z")
     assert first > datetime.utcnow() + timedelta(minutes=25)  # noqa: DTZ003
     span = datetime.strptime(slots[-1], "%Y-%m-%dT%H:%M:%S.000Z") - first
-    assert span < timedelta(hours=24)
+    assert span < timedelta(hours=36)
 
 
 def test_ramp_up(tmp_path, monkeypatch):
+    """Volume is a growth level (driven by views, see test_reach), capped by CLIPS_PER_DAY."""
     s = _settings(tmp_path, monkeypatch, CLIPS_PER_DAY=8)
     db = Database(tmp_path / "t.db")
-    assert clips_target(s, db) == 3
-    today = datetime.now(ZoneInfo(s.tz)).date()
-    db.kv_set("first_upload_day", (today - timedelta(days=8)).isoformat())
-    assert clips_target(s, db) == 5
-    db.kv_set("first_upload_day", (today - timedelta(days=20)).isoformat())
-    assert clips_target(s, db) == 8
+    assert clips_target(s, db) == 3                       # a new channel starts at the first level
     s2 = _settings(tmp_path, monkeypatch, CLIPS_PER_DAY=6, RAMP_UP="false")
-    assert clips_target(s2, db) == 6
+    assert clips_target(s2, db) == 6                      # top level (7), capped at 6
 
 
 def test_battery_and_preconditions(tmp_path, monkeypatch):

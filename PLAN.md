@@ -2,7 +2,7 @@
 
 Every day the system picks one long public English stream or podcast, finds the best funny, informative or deep moments with AI, renders vertical Shorts of 50–55 seconds, and schedules them on YouTube with no manual steps. It runs in one small Docker container on this laptop, makes one run per day whenever the laptop is on, retries on failure, and emails the results.
 
-**Status (2026-11-08): built, tested, and live.** The first 3 clips were uploaded to the channel in `scheduled` mode and verified through the YouTube API: private with `publishAt` set, going public at 16:30, 19:32 and 22:36 IST. Gemini, YouTube upload and Gmail all work. Custom thumbnails are refused (403) until the channel is phone-verified at youtube.com/verify. See [README.md](README.md) for operation.
+**Status (2026-11-11): GTA feed and reach work (see [the GTA plan](docs/superpowers/plans/2026-11-10-gta6-expansion.md)) built and tested: batches through the day, `gta6_talk` and `gta6_gameplay` kinds, PO-token server against the bot check, audience-time publishing, view-driven growth.** Earlier status (2026-11-08): built, tested, and live. The first 3 clips were uploaded to the channel in `scheduled` mode and verified through the YouTube API: private with `publishAt` set, going public at 16:30, 19:32 and 22:36 IST. Gemini, YouTube upload and Gmail all work. Custom thumbnails are refused (403) until the channel is phone-verified at youtube.com/verify. See [README.md](README.md) for operation.
 
 ---
 

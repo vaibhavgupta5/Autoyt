@@ -32,6 +32,93 @@
 - A retry of one batch must never re-pick or re-roll the other batches' quotas, videos, or slots.
 - Gameplay clips with no speech: no Whisper call, no caption track, no crash in `_tags/_hashtags` on `category=NULL`.
 
+## Reach addendum (2026-11-11)
+
+Added after reviewing the live container and the channel's numbers. **Read this before executing; it changes task order and adds Tasks R0–R6.**
+
+> **Status 2026-11-11:** Tasks 1–14 and R0–R6 are implemented and covered by `tests/test_kinds.py`, `tests/test_segments.py` and `tests/test_reach.py`. Owner decision: GTA 5 gameplay runs until 18 Nov (labelled GTA 5 everywhere), GTA 6 gameplay only from 19 Nov.
+
+### What the data says (2026-11-11)
+
+- 12 Shorts uploaded 8–10 Nov: **48 views total**, best 14, median ~3, zero likes or comments. Channel: 46 videos, 720 lifetime views, 6 subs. The bottleneck is **reach per video, not volume**. Going 3 → 13/day on this baseline multiplies spam/reused-content risk without fixing reach.
+- **The pipeline is currently blocked.** Since 10 Nov, yt-dlp gets "Sign in to confirm you're not a bot" on every metadata probe and audio download (yt-dlp 2026.10.26, deno present, **no PO-token provider**). The 11 Nov run burned 14 probes and 4 audio retries, and is pending on attempt 1/4. Each GTA batch adds more probes, so 10–13/day would make the block worse.
+- Clip `1rVBSltSTGA` starts at 0.0 s (episode intro), despite the "skip intros" prompt rule. No code check enforces it.
+- The 3 clips from 8 Nov (manual run) all went public at the same minute (20:50 UTC), so they competed with each other.
+- Publish times follow "now + 30 min, spread over 20 h" in the laptop's timezone, not the audience's. 10 Nov clips went public at 00:21, 03:24 and 06:28 UTC.
+- The thumbnail call fails with 403 on every upload (channel not phone-verified). Shorts mostly ignore custom thumbnails anyway, so this is noise, not a reach lever.
+- **GTA VI launches 19 Nov 2026 (8 days).** Search and Shorts demand for "GTA 6" peaks in the next ~3 weeks. Shipping `gta6_talk` before launch is worth more than any other task in this plan.
+
+### Revised execution order
+
+1. **R0 – unblock ingestion** (blocker: nothing ships without it).
+2. Tasks 1–4 (done in the working tree; commit them) → 6 → 7 → 8 → 9 → 10 → 11 → 13 → 14 (talk sources only) → 15. **Target: `gta6_talk` live by 16 Nov**, three days before launch.
+3. **R1–R4** (reach levers). R1 and R2 are small and can merge with Tasks 9/10.
+4. Tasks 5 (done) and 12, then the gameplay half of Task 14. **Gameplay goes live at launch (19 Nov) on real GTA VI footage**, unless the owner explicitly keeps the GTA V day-1 decision. If GTA V footage runs pre-launch, its titles, headings and hashtags must say "GTA 5"/"GTA Online", never "GTA 6"; a GTA6 label on GTA V footage is misleading metadata under YouTube's spam policy and earns swipe-aways from viewers who notice.
+5. **R5** (feedback loop), then **R6** (performance-gated ramp) replaces the fixed day-count ramp.
+
+### Task R0: Unblock yt-dlp (PO-token provider, fewer probes)
+
+**Files:** `docker-compose.yml`, `Dockerfile`, `autoyt/ytdlp.py`, `autoyt/sources.py`, `autoyt/monitor.py`, `README.md`
+
+- [ ] Add the `bgutil-ytdlp-pot-provider` plugin to the image (`pip install bgutil-ytdlp-pot-provider`) and a `bgutil-provider` sidecar service (HTTP-server mode, port 4416) to `docker-compose.yml`. Pass `--extractor-args "youtubepot-bgutilhttp:base_url=http://bgutil-provider:4416"` from `ytdlp.py`. This keeps the "no cookies, no login" policy.
+- [ ] Verify with `docker compose run --rm autoyt yt-dlp -v --simulate <public id>`: the log must list the bgutil provider, not `PO Token Providers: none`.
+- [ ] Cut probe volume. `pick_video` should rank candidates from the cached `listing` table (flat playlist: title, duration, upload date) and run a full metadata probe only on the chosen video, not up to 8 per attempt. Add `--sleep-requests 2` to probes.
+- [ ] Treat a bot-check as a **global** back-off, not a per-video reject. On the first bot-check in a run, stop probing, set `kv:bot_block_until = now + 2h`, and skip ticks until then. Today each blocked video is marked rejected, which wrongly burns good videos.
+- [ ] Email once when a bot block lasts more than 6 h. The fix is manual (update yt-dlp or the provider).
+- [ ] Test: fake `ytdlp` raising the bot-check text → the run defers with `next_try_at`, no `bad_videos` rows are written, and the next tick skips.
+
+### Task R1: Hook and clip-boundary rules
+
+**Files:** `autoyt/validate.py`, `autoyt/select_clips.py`, tests
+
+- [ ] Reject candidates that start in the first 90 s or the last 120 s of a source (intros/outros), unless `hook_score >= 9`.
+- [ ] Per-kind length: `gta6_talk` 25–45 s (news and breakdown beats are short; shorter clips loop and complete more often); podcast keeps 50–55 s for now, with R5 deciding later. The selection prompt must give the word budget per kind (~65–110 words for talk).
+- [ ] The heading must be on screen from frame 0 (assert in the render test). The first spoken line must be the hook: tell Gemini to start on the claim, not on setup ("So, um, the thing about…").
+- [ ] Prefer endings that loop: add a `loop_score` field to the prompt and break ties with it.
+
+### Task R2: Search-first metadata for GTA kinds
+
+**Files:** `autoyt/select_clips.py` (talk prompt), `autoyt/pipeline.py` (`_title/_tags/_hashtags/_description`), tests
+
+- [ ] GTA titles must contain the exact phrase "GTA 6" in the first 40 characters, plus the concrete subject (feature, map, price, release time, character). These are the queries people type during launch week.
+- [ ] Hashtag order for GTA kinds: `#GTA6 #GTAVI #<subject>`. The first three show above the title. Drop `#shorts` from titles (it wastes title characters and has no effect on Shorts distribution); keep it in the description.
+- [ ] Rotate launch-window topics into the talk prompt by date: pre-launch (release time by region, preload, price/editions, map, what's confirmed); launch week (first impressions, tips, hidden details). Pass `days_to_launch` into the prompt.
+- [ ] Test: GTA talk metadata contains "GTA 6" in the title prefix and `#GTA6` as the first hashtag; podcast metadata is unchanged.
+
+### Task R3: Publish at the audience's peak hours
+
+**Files:** `autoyt/kinds.py`, `autoyt/pipeline.py` (`next_slot`), `autoyt/config.py`, tests
+
+- [ ] Add `slots.audience_tz` (default `America/New_York`) and `slots.publish_window` (default `["11:00", "23:00"]` in that timezone). Slots are drawn inside that window, with `min_gap` 30 between **all** kinds, so videos never stack.
+- [ ] Keep the batch *run* window (laptop-awake hours, local time) separate from the *publish* window. Batches upload early as private and `publishAt` releases them at the right time. Make sure the slot horizon covers the next day's window when today's has passed.
+- [ ] Launch override: on 18–20 Nov, put 1–2 GTA slots right after the global unlock and preload news (date-gated config, no code at launch).
+- [ ] Test: 13 slots for one day all land inside the window, at least 30 min apart, and in strictly increasing order across kinds.
+
+### Task R4: Stop the thumbnail noise, add a pinned engagement comment
+
+**Files:** `autoyt/pipeline.py`, `autoyt/upload.py`
+
+- [ ] Skip `set_thumbnail` while `kv:thumbs_forbidden` is set (set it on the first 403; retry weekly). This removes one wasted API call and one warning per clip.
+- [ ] Optional, behind the `engagement_comment: true` flag: post one top-level comment per video with a question tied to the clip ("Day-one buy or wait for reviews?"). This needs the `youtube.force-ssl` scope, so it needs a one-time re-auth; leave it off until the owner re-authorizes.
+
+### Task R5: Performance feedback loop
+
+**Files:** create `autoyt/stats.py`, `tests/test_stats.py`; modify `autoyt/db.py` (`clip_stats` table), `autoyt/scheduler.py`, `autoyt/notify.py`, `autoyt/sources.py`, `autoyt/main.py`
+
+- [ ] Once per day, fetch `statistics` (views/likes/comments) via the Data API for clips published 1, 3 and 7 days ago, and store `(youtube_id, age_days, views, likes, comments)`. That costs 1 quota unit per 50 ids.
+- [ ] If the owner re-auths with `yt-analytics.readonly`, also store `averageViewPercentage` and `averageViewDuration`. Retention is the metric the Shorts feed actually optimizes.
+- [ ] Add a "Last 7 days" block to the summary email: views by kind, source, category, length bucket and publish hour, plus the top 3 and bottom 3 clips.
+- [ ] Weighting: source weight becomes `config_weight × (0.5 + share of 72 h views)`, clamped to [0.25, 3]. Category and length-bucket preferences go into the selection prompt as hints. This only engages after ≥ 20 clips with 72 h data, so the system explores first.
+- [ ] Add a `autoyt stats` CLI command.
+
+### Task R6: Gate the ramp on performance, not on days
+
+**Files:** `autoyt/kinds.py` (`clips_target`, `gta6_target`), `autoyt/config.py`, tests
+
+- [ ] Move to the next step (podcast 3→5→7; GTA 2→3→3–6) only when the 7-day median of 72 h views per clip is at least the threshold for that step (default 50/150/400) **and** no strike or claim arrived in the last 7 days. Drop one step if the median falls below a third of the threshold.
+- [ ] While a kind outperforms the other (median ×3 or more for 7 days), shift daily quota toward it within the same total. If GTA talk takes off at launch while podcasts sit at ~3 views, the slots should go to GTA.
+- [ ] Test: fixed `clip_stats` fixtures → the expected target per step, a step-down on a slump, and a hold on a strike.
+
 ## File Map
 
 - Create: `autoyt/kinds.py`, `autoyt/segments.py`, `tests/test_kinds.py`, `tests/test_segments.py`

@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS clips (
   heading TEXT, title TEXT, description TEXT, context_line TEXT,
   category TEXT, score REAL, text TEXT,
   status TEXT NOT NULL DEFAULT 'planned',     -- planned|rendered|uploaded|failed|deleted
+  kind TEXT NOT NULL DEFAULT 'podcast',       -- podcast|gta6_talk|gta6_gameplay
   file TEXT, publish_at TEXT, youtube_id TEXT, thumb_ok INTEGER,
   music TEXT, error TEXT, created_at REAL, updated_at REAL
 );
@@ -36,6 +37,10 @@ CREATE TABLE IF NOT EXISTS disabled_sources (name TEXT PRIMARY KEY, reason TEXT,
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS notified (day TEXT, kind TEXT, at REAL, PRIMARY KEY (day, kind));
 CREATE TABLE IF NOT EXISTS gameplay_usage (file TEXT, start REAL, used_at REAL);
+CREATE TABLE IF NOT EXISTS clip_stats (
+  youtube_id TEXT, age_days INTEGER, views INTEGER, likes INTEGER, comments INTEGER,
+  avg_view_pct REAL, fetched_at REAL, PRIMARY KEY (youtube_id, age_days)
+);
 """
 
 
@@ -50,6 +55,16 @@ class Database:
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(clips)")}
         if "tags" not in cols:  # added after the first release: migrate an existing database in place
             self.conn.execute("ALTER TABLE clips ADD COLUMN tags TEXT")
+        if "kind" not in cols:
+            self.conn.execute("ALTER TABLE clips ADD COLUMN kind TEXT NOT NULL DEFAULT 'podcast'")
+        if "comment_question" not in cols:
+            self.conn.execute("ALTER TABLE clips ADD COLUMN comment_question TEXT")
+            self.conn.execute("ALTER TABLE clips ADD COLUMN comment_posted INTEGER NOT NULL DEFAULT 0")
+        # A bot check is YouTube blocking this IP, not a bad video: forget videos rejected for that reason.
+        self.conn.execute("DELETE FROM bad_videos WHERE reason LIKE '%not a bot%'")
+        # Runs used to be keyed by the bare day. Turn those into explicit podcast runs, once.
+        for table in ("runs", "steps", "clips"):
+            self.conn.execute(f"UPDATE {table} SET day = day || ':podcast' WHERE day NOT LIKE '%:%'")
         self.conn.commit()
 
     # ---- helpers ----
@@ -95,10 +110,11 @@ class Database:
 
         Uploaded clips stay tracked under the new name, so the rejection monitor still sees them.
         """
+        # `~n`, not `#n`: `#n` is how a second batch of the same kind on the same day is named.
         n = 1
-        while self.get_run(f"{day}#{n}"):
+        while self.get_run(f"{day}~{n}"):
             n += 1
-        new = f"{day}#{n}"
+        new = f"{day}~{n}"
         for table in ("runs", "clips", "steps", "notified"):
             self.execute(f"UPDATE {table} SET day=? WHERE day=?", (new, day))
         return new
@@ -107,16 +123,17 @@ class Database:
         self.execute("DELETE FROM steps WHERE day=?", (day,))
 
     # ---- clips ----
-    def add_clips(self, day: str, clips: list[dict]) -> None:
+    def add_clips(self, day: str, clips: list[dict], kind: str = "podcast") -> None:
         self.execute("DELETE FROM clips WHERE day=?", (day,))
         now = time.time()
         for i, c in enumerate(clips):
             self.execute(
                 "INSERT INTO clips(day, idx, start, end, duration, heading, title, description, context_line,"
-                " category, score, text, tags, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " category, score, text, tags, kind, comment_question, created_at, updated_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (day, i, c["start"], c["end"], c["duration"], c["heading"], c["title"], c["description"],
                  c.get("context_line", ""), c["category"], c["score"], c.get("text", ""),
-                 json.dumps(c.get("tags") or []), now, now),
+                 json.dumps(c.get("tags") or []), kind, c.get("comment_question") or None, now, now),
             )
 
     def clips_for(self, day: str) -> list[sqlite3.Row]:
@@ -188,3 +205,13 @@ class Database:
     def recent_gameplay(self, file: str, days: float = 7) -> list[float]:
         cutoff = time.time() - days * 86400
         return [r["start"] for r in self.query("SELECT start FROM gameplay_usage WHERE file=? AND used_at>?", (file, cutoff))]
+
+    # ---- stats ----
+    def add_stat(self, youtube_id: str, age_days: int, views: int, likes: int, comments: int,
+                 avg_view_pct: float | None = None) -> None:
+        self.execute("INSERT OR REPLACE INTO clip_stats VALUES (?,?,?,?,?,?,?)",
+                     (youtube_id, age_days, views, likes, comments, avg_view_pct, time.time()))
+
+    def has_stat(self, youtube_id: str, age_days: int) -> bool:
+        return self.one("SELECT 1 FROM clip_stats WHERE youtube_id=? AND age_days=?",
+                        (youtube_id, age_days)) is not None

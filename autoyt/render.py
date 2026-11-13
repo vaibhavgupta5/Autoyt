@@ -40,6 +40,35 @@ def _top_filter(layout_name: str, layout: dict, crop: list[float] | None, zoom: 
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2,{tail}[top]")
 
 
+def _full_filter(layout: dict, crop: list[float] | None, zoom: float) -> str:
+    """Whole 1080x1920 frame from the source: cover-crop to 9:16 (centre), optional manual crop and zoom."""
+    W, H = layout["width"], layout["height"]
+    tail = f"setsar=1,fps={layout['fps']},format=yuv420p"
+    pre = ""
+    if crop:
+        x, y, w, h = crop
+        pre = f"crop=iw*{w}:ih*{h}:iw*{x}:ih*{y},"
+    if zoom and zoom > 1:
+        pre += f"crop=iw/{zoom}:ih/{zoom},"
+    return (f"[0:v]{pre}crop=w='min(iw,ih*{W}/{H})':h='min(ih,iw*{H}/{W})',"
+            f"scale={W}:{H}:flags=lanczos,{tail}[top]")
+
+
+def _full_fit_filter(layout: dict, zoom: float) -> str:
+    """Full screen for talk/news footage (maps, screenshots, on-screen text): a 1150 px tall picture showing
+    about half of a 16:9 frame's width, over a blurred, darkened copy of itself. A hard 9:16 crop keeps
+    under a third of the width and cuts on-screen text; a full fit makes everything tiny."""
+    W, H = layout["width"], layout["height"]
+    tail = f"setsar=1,fps={layout['fps']},format=yuv420p"
+    fh = int(H * 0.6 * max(1.0, zoom or 1.0)) // 2 * 2   # picture 1150 px tall: ~half of a 16:9 width shows
+    bw, bh = W // 4, H // 4
+    return (f"[0:v]split=2[a][b];"
+            f"[a]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=8:2,"
+            f"scale={W}:{H}:flags=bilinear,eq=brightness=-0.15[bg];"
+            f"[b]scale=-2:{fh}:flags=lanczos,crop='min(iw,{W})':'min(ih,{H})'[fg];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)/2,{tail}[top]")
+
+
 def build_command(s: Settings, *, section: Path, ass_name: str, out_tmp: Path, duration: float,
                   gameplay: dict | None, music: dict | None, layout_name: str = "fit_blur",
                   crop: list[float] | None = None, zoom: float = 1.0) -> list[str]:
@@ -47,7 +76,10 @@ def build_command(s: Settings, *, section: Path, ass_name: str, out_tmp: Path, d
     W, B = lay["width"], lay["bottom_height"]
     fps = lay["fps"]
     cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(section)]
-    if gameplay:
+    full = layout_name in ("full", "full_fit")
+    if full:
+        pass  # one full-screen picture: no bottom panel input at all
+    elif gameplay:
         loop = ["-stream_loop", "-1"] if gameplay.get("loop") else []  # file shorter than the clip: repeat it
         cmd += [*loop, "-ss", f"{gameplay['start']:.2f}", "-t", f"{duration:.2f}", "-i", str(gameplay["path"])]
     else:
@@ -56,13 +88,18 @@ def build_command(s: Settings, *, section: Path, ass_name: str, out_tmp: Path, d
         if music.get("loop"):
             cmd += ["-stream_loop", "-1"]
         cmd += ["-ss", f"{music['start']:.2f}", "-i", str(music["path"])]
+    music_in = 1 if full else 2
 
-    graph = [
-        _top_filter(layout_name, lay, crop, zoom),
-        f"[1:v]fps={fps},scale={W}:{B}:force_original_aspect_ratio=increase,crop={W}:{B},setsar=1,format=yuv420p[bot]",
-        "[top][bot]vstack=inputs=2[st]",
-        f"[st]ass={ass_name}[v]",
-    ]
+    if full:
+        pic = _full_fit_filter(lay, zoom) if layout_name == "full_fit" else _full_filter(lay, crop, zoom)
+        graph = [pic, f"[top]ass={ass_name}[v]"]
+    else:
+        graph = [
+            _top_filter(layout_name, lay, crop, zoom),
+            f"[1:v]fps={fps},scale={W}:{B}:force_original_aspect_ratio=increase,crop={W}:{B},setsar=1,format=yuv420p[bot]",
+            "[top][bot]vstack=inputs=2[st]",
+            f"[st]ass={ass_name}[v]",
+        ]
     lufs = s.cfg["audio"]["speech_lufs"]
     base = f"[0:a]aresample=48000,loudnorm=I={lufs}:TP=-1.5:LRA=11,aresample=48000"
     if music:
@@ -75,7 +112,7 @@ def build_command(s: Settings, *, section: Path, ass_name: str, out_tmp: Path, d
         fade_out = max(0.0, duration - 2.5)
         graph += [
             f"{base},asplit=2[sp][sc]",
-            f"[2:a]aresample=48000,volume={vol:.4f},afade=t=in:st=0:d=1.5,afade=t=out:st={fade_out:.2f}:d=2.5[mu0]",
+            f"[{music_in}:a]aresample=48000,volume={vol:.4f},afade=t=in:st=0:d=1.5,afade=t=out:st={fade_out:.2f}:d=2.5[mu0]",
             "[mu0][sc]sidechaincompress=threshold=0.04:ratio=6:attack=15:release=350[mu]",
             "[sp][mu]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[a]",
         ]
@@ -87,7 +124,7 @@ def build_command(s: Settings, *, section: Path, ass_name: str, out_tmp: Path, d
             "-maxrate", "6M", "-bufsize", "12M",  # high-motion gameplay otherwise hits 8 Mbps (50 MB a clip)
             "-pix_fmt", "yuv420p",
             "-r", str(fps), "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart",
-            "-threads", str(max(2, s.whisper_threads)), "-f", "mp4", str(out_tmp)]
+            "-threads", str(max(1, s.render_threads)), "-f", "mp4", str(out_tmp)]
     return cmd
 
 

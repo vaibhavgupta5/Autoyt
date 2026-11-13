@@ -23,6 +23,10 @@ DEFAULTS: dict[str, Any] = {
         "min_words": 80,
         "min_gap_between_clips": 5.0,
         "max_clips_per_15min": 3,
+        # Intros and outros rarely hook anyone: a clip may not start in the first 90 s or the last 120 s
+        # of the source, unless the model rated its hook 9+.
+        "skip_intro_seconds": 90,
+        "skip_outro_seconds": 120,
     },
     "source": {
         "min_minutes": 60,
@@ -32,8 +36,36 @@ DEFAULTS: dict[str, Any] = {
         "max_pick_tries": 8,
         "max_listing_items": 3000,
         "max_height": 720,  # never download more than 720p: saves size and time
+        # A video without YouTube captions needs Whisper over all of it. Above this length that costs
+        # 20+ minutes of CPU, so such a video is skipped and another one picked instead.
+        "max_whisper_minutes": 75,
     },
     "min_clips_per_video": 3,
+    # Per-kind overrides of the `clip` block above. GTA6 gameplay is short-form: 20-45 s, no captions.
+    "kinds": {
+        "podcast": {"clip": {"min_seconds": 50.0, "max_seconds": 55.0}},
+        # GTA news and breakdown beats are short; short clips loop and get watched to the end more often.
+        "gta6_talk": {"clip": {"min_seconds": 25.0, "max_seconds": 45.0, "min_words": 55,
+                               "max_music_ratio": 0.35}},
+        "gta6_gameplay": {"clip": {"min_seconds": 20.0, "max_seconds": 45.0}},
+    },
+    # min/max videos per day once the ramp is over; talk_weight splits them between the two kinds.
+    "gta6": {"min": 3, "max": 6, "talk_weight": 0.5, "ramp": [[0, 2], [4, 3]], "launch_date": "2026-11-19"},
+    # Volume grows only when views do. Each level is clips per day; GTA levels are [min, max] (a random
+    # count in that range). Moving up from level i needs the 7-day median of 72-hour views per clip to
+    # reach thresholds[i]; falling under a third of the threshold below drops a level. A copyright
+    # strike or claim in the last 7 days holds the level.
+    "growth": {
+        "podcast_levels": [3, 5, 7],
+        "gta6_levels": [[2, 2], [3, 3], [3, 6]],
+        "thresholds": [50, 150],
+        "min_samples": 5,
+        "min_days_at_level": 3,
+        "shift_ratio": 3.0,          # a kind whose median is 3x the other's takes up to 2 of its daily slots
+        "max_shift": 2,
+    },
+    # Batching spreads the day's work: several small runs at random times instead of one long one.
+    "batching": {"max_clips_per_batch": 4, "window": ["08:00", "22:00"], "min_gap_hours": 2},
     "layout": {
         "width": 1080,
         "height": 1920,
@@ -41,8 +73,11 @@ DEFAULTS: dict[str, Any] = {
         "bottom_height": 770,
         "fps": 30,
         "font": "DejaVu Sans",
-        "heading_size": 78,
+        "heading_size": 64,
+        "heading_top": 120,
         "subtitle_size": 74,
+        "subtitle_y": 620,       # captions stay inside the source panel, never on the seam
+        "credit_seconds": 1.5,   # the credit shows briefly, then gets out of the way
         "crf": 23,
         "preset": "veryfast",
     },
@@ -55,7 +90,21 @@ DEFAULTS: dict[str, Any] = {
     ],
     # (days since first upload, clips per day) - the last entry whose days <= age wins
     "ramp": [[0, 3], [7, 5], [14, 8]],
-    "slots": {"first_delay_minutes": 30, "target_span_hours": 20, "min_gap": 45, "max_gap": 180, "jitter_minutes": 8},
+    # Videos go public inside `publish_window`, in the audience's timezone (US evening by default), at least
+    # `min_gap` minutes apart across every kind. `window_overrides` widens or moves the window on given dates
+    # (GTA VI launch night).
+    "slots": {"first_delay_minutes": 30, "target_span_hours": 20, "min_gap": 30, "max_gap": 120, "jitter_minutes": 8,
+              "audience_tz": "America/New_York", "publish_window": ["11:00", "23:00"],
+              "window_overrides": {"2026-11-18": ["11:00", "23:59"], "2026-11-19": ["00:05", "23:30"]}},
+    # YouTube's bot check: back off the whole pipeline (hours, growing with each repeat) and email if it lasts.
+    "bot_check": {"backoff_hours": [2, 4, 8], "alert_after_hours": 6},
+    # Daily view counts per clip at these ages (days), used by the summary email, source weights and growth.
+    "stats": {"checkpoints": [1, 3, 7], "min_clips_for_weights": 20},
+    # auto = post one question comment per video after it goes public, if the YouTube login allows it
+    # (needs `autoyt auth --extended` once); off = never.
+    "engagement": {"comment": "auto"},
+    # Keeps the laptop usable: renders and Whisper use a few threads, slices download two at a time.
+    "resources": {"prefetch_workers": 2},
     "retry": {"step_delays": [60, 300, 900], "run_attempts_per_day": 4, "run_retry_minutes": 60},
     "retention": {"dry_run_days": 3, "work_days": 1},
 }
@@ -92,7 +141,9 @@ class Settings:
     ramp_up: bool = True
     transcript_source: str = "auto"  # auto = YouTube captions first, Whisper if unavailable | captions | whisper
     whisper_model: str = "small.en"
-    whisper_threads: int = 8
+    whisper_threads: int = 4
+    render_threads: int = 3
+    pot_provider_url: str = ""    # bgutil PO-token server, e.g. http://bgutil-provider:4416
     min_battery: int = 40
     min_free_disk_gb: float = 15.0
     tz: str = "Asia/Kolkata"
@@ -161,7 +212,9 @@ def load_settings(home: Path | None = None) -> Settings:
         ramp_up=_env_bool("RAMP_UP", True),
         transcript_source=str(_env("TRANSCRIPT_SOURCE", "auto")).strip().lower(),
         whisper_model=str(_env("WHISPER_MODEL", "small.en")),
-        whisper_threads=int(_env("WHISPER_THREADS", max(2, min(8, cpu // 2)))),
+        whisper_threads=int(_env("WHISPER_THREADS", max(2, min(4, cpu // 2)))),
+        render_threads=int(_env("RENDER_THREADS", max(2, min(3, cpu // 2)))),
+        pot_provider_url=str(_env("POT_PROVIDER_URL", "")),
         min_battery=int(_env("MIN_BATTERY_PERCENT", 40)),
         min_free_disk_gb=float(_env("MIN_FREE_DISK_GB", 15)),
         tz=str(_env("TZ", "Asia/Kolkata")),

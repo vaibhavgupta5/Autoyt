@@ -10,9 +10,13 @@ from dataclasses import dataclass
 from . import ytdlp
 from .config import Settings
 from .db import Database
-from .errors import SourceRejected
+from .errors import BotBlocked, SourceRejected
+from .kinds import today
 
 log = logging.getLogger("autoyt.sources")
+
+# Footage from leaks or developer builds is never used, whatever the title filter says.
+LEAK = re.compile(r"leak|leaked|cyberleek|dev build|debug build|early build", re.I)
 
 
 @dataclass
@@ -37,13 +41,27 @@ def load_sources(s: Settings) -> list[dict]:
         src.setdefault("tabs", ["videos"])
         src.setdefault("credit", src["name"])
         src.setdefault("layout", "center_crop")
+        src.setdefault("kind", "podcast")
         out.append(src)
     return out
 
 
-def active_sources(s: Settings, db: Database) -> list[dict]:
+def _in_window(src: dict, day: str) -> bool:
+    """Optional ISO-date window: `after` starts a source, `until` retires it (GTA VI launch)."""
+    after, until = src.get("after"), src.get("until")
+    if after and day < str(after):
+        return False
+    if until and day > str(until):
+        return False
+    return True
+
+
+def active_sources(s: Settings, db: Database, kind: str = "podcast",
+                   day: str | None = None) -> list[dict]:
     disabled = db.disabled_sources()
-    return [x for x in load_sources(s) if x["enabled"] and x["name"] not in disabled]
+    day = day or today(s)
+    return [x for x in load_sources(s)
+            if x["enabled"] and x["name"] not in disabled and x["kind"] == kind and _in_window(x, day)]
 
 
 def _bounds(s: Settings, src: dict) -> tuple[float, float]:
@@ -53,6 +71,8 @@ def _bounds(s: Settings, src: dict) -> tuple[float, float]:
 
 
 def _title_ok(src: dict, title: str) -> bool:
+    if LEAK.search(title):
+        return False
     inc = src.get("title_include")
     exc = src.get("title_exclude") or []
     if inc and not any(re.search(p, title, re.I) for p in inc):
@@ -75,7 +95,7 @@ def refresh_listing(s: Settings, db: Database, src: dict, force: bool = False) -
     rows: dict[str, dict] = {}
     for tab in src["tabs"]:
         url = src["url"].rstrip("/") + "/" + tab
-        for e in ytdlp.list_flat(s, url, s.cfg["source"]["max_listing_items"]):
+        for e in ytdlp.list_flat(s, url, int(src.get("max_items", s.cfg["source"]["max_listing_items"]))):
             vid, dur, title = e.get("id"), e.get("duration"), e.get("title") or ""
             if not vid or not dur or not (lo <= float(dur) <= hi):
                 continue
@@ -110,17 +130,20 @@ def check_video(s: Settings, src: dict, video_id: str) -> dict:
     return info
 
 
-def pick_video(s: Settings, db: Database, rng: random.Random | None = None) -> Picked:
-    """Weighted random source, then a random never-used public video from its history."""
+def pick_video(s: Settings, db: Database, rng: random.Random | None = None,
+               kind: str = "podcast") -> Picked:
+    """Weighted random source of this kind, then a random never-used public video from its history."""
     rng = rng or random.Random()
     cooldown = s.cfg["source"]["cooldown_days"] * 86400
     used, bad = db.used_ids(), db.bad_ids()
-    sources = active_sources(s, db)
+    sources = active_sources(s, db, kind)
     if not sources:
         raise SourceRejected("no enabled sources")
     for src in sources:  # lazy listing refresh
         try:
             refresh_listing(s, db, src)
+        except BotBlocked:
+            raise
         except Exception as e:  # noqa: BLE001
             log.warning("listing refresh failed for %s: %s", src["name"], e)
 
@@ -137,11 +160,13 @@ def pick_video(s: Settings, db: Database, rng: random.Random | None = None) -> P
     pool = candidates(False) or candidates(True)
     if not pool:
         raise SourceRejected("no unused eligible videos in any enabled source")
+    from .stats import source_multipliers  # sources that earn views get picked more often
+    mult = source_multipliers(s, db)
 
     for _ in range(s.cfg["source"]["max_pick_tries"]):
         if not pool:
             break
-        src, vids = rng.choices(pool, weights=[p[0]["weight"] for p in pool])[0]
+        src, vids = rng.choices(pool, weights=[p[0]["weight"] * mult.get(p[0]["name"], 1.0) for p in pool])[0]
         row = rng.choice(vids)
         try:
             info = check_video(s, src, row["video_id"])

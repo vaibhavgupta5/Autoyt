@@ -1,6 +1,9 @@
+import os
 import random
 
 import pytest
+
+from autoyt.config import load_settings
 
 
 def make_words(n_sentences=60, words_per=14, wps=2.6, start=0.0):
@@ -24,3 +27,14 @@ def words():
 @pytest.fixture
 def rng():
     return random.Random(7)
+
+
+@pytest.fixture
+def env_settings(tmp_path, monkeypatch):
+    """Settings rooted in a throwaway home, with a config dir ready for sources.yaml."""
+    monkeypatch.setenv("AUTOYT_HOME", str(tmp_path))
+    monkeypatch.setenv("MIN_FREE_DISK_GB", "0")
+    st = load_settings()
+    st.ensure_dirs()
+    st.config_dir.mkdir(exist_ok=True)
+    return st

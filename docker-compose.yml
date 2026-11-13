@@ -8,9 +8,14 @@ services:
     env_file: .env
     # Run as your own user so files in ./data and ./assets stay yours (find yours with `id -u`).
     user: "${AUTOYT_UID:-1000}:${AUTOYT_GID:-1000}"
-    cpus: 8
-    mem_limit: 6g
+    # Light on the laptop: at most 3 cores and 3 GB, low CPU priority (nice 10) and idle-class disk I/O.
+    # Work is split into small batches at random times through the day, never one long burst.
+    cpus: 3
+    mem_limit: 3g
+    cpu_shares: 256
     command: ["daemon"]
+    depends_on:
+      - bgutil-provider
     volumes:
       - ./data:/app/data
       - ./assets:/app/assets
@@ -21,3 +26,15 @@ services:
     environment:
       POWER_SUPPLY_DIR: /host_power
       HOME: /app/data
+      # PO tokens make YouTube treat yt-dlp like a normal (logged-out) player: no cookies, no login.
+      POT_PROVIDER_URL: http://bgutil-provider:4416
+
+  # Tiny token server for yt-dlp's bgutil plugin (versions must match: plugin pinned in the Dockerfile).
+  bgutil-provider:
+    image: brainicism/bgutil-ytdlp-pot-provider:2.0.2-deno
+    container_name: autoyt-bgutil
+    restart: unless-stopped
+    init: true
+    cpus: 0.5
+    mem_limit: 384m
+    cpu_shares: 128

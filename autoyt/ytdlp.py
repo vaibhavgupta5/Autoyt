@@ -7,15 +7,26 @@ import subprocess
 from pathlib import Path
 
 from .config import Settings
-from .errors import SourceRejected
+from .errors import BotBlocked, SourceRejected
 
 log = logging.getLogger("autoyt.ytdlp")
 
-COMMON = ["--no-warnings", "--retries", "10", "--fragment-retries", "10", "--socket-timeout", "30"]
+# --sleep-requests spaces out the few page requests yt-dlp makes per video; bursts are what trip the bot check.
+COMMON = ["--no-warnings", "--retries", "10", "--fragment-retries", "10", "--socket-timeout", "30",
+          "--sleep-requests", "1"]
+
+
+def base_args(s: Settings) -> list[str]:
+    """Flags for every call. With a PO-token server configured, yt-dlp's bgutil plugin asks it for tokens,
+    which is what YouTube wants from a client that is not logged in (no cookies needed)."""
+    out = list(COMMON)
+    if s.pot_provider_url:
+        out += ["--extractor-args", f"youtubepot-bgutilhttp:base_url={s.pot_provider_url}"]
+    return out
 
 
 def _run(s: Settings, args: list[str], timeout: int) -> subprocess.CompletedProcess:
-    cmd = ["yt-dlp", *COMMON, *s.ytdlp_args, *args]
+    cmd = ["yt-dlp", *base_args(s), *s.ytdlp_args, *args]
     log.debug("yt-dlp %s", " ".join(args))
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
@@ -53,11 +64,23 @@ BOT_HINT = (" [YouTube is rate-limiting this IP ('confirm you're not a bot'). It
             "the run retries by itself. If it keeps happening, see README > Troubleshooting.]")
 
 
+def is_bot_check(text: str) -> bool:
+    """YouTube's "Sign in to confirm you're not a bot" (any apostrophe style)."""
+    return "not a bot" in (text or "").lower()
+
+
 def _fail_text(p: subprocess.CompletedProcess) -> str:
     text = (p.stderr or p.stdout or "").strip()[-600:]
-    if "not a bot" in text:
+    if is_bot_check(text):
         text += BOT_HINT
     return text
+
+
+def _check_bot(p: subprocess.CompletedProcess) -> None:
+    """A bot check blames the IP, not the video: raise BotBlocked so the caller backs off instead of
+    marking a good video bad or trying the next one (which only digs the hole deeper)."""
+    if p.returncode != 0 and is_bot_check(p.stderr or p.stdout or ""):
+        raise BotBlocked(_fail_text(p)[-300:])
 
 
 def list_flat(s: Settings, url: str, limit: int) -> list[dict]:
@@ -73,6 +96,7 @@ def list_flat(s: Settings, url: str, limit: int) -> list[dict]:
         except json.JSONDecodeError:
             continue
     if not rows and p.returncode != 0:
+        _check_bot(p)
         log.warning("listing failed for %s: %s", url, _fail_text(p))
     return rows
 
@@ -81,6 +105,7 @@ def video_info(s: Settings, video_id: str) -> dict:
     p = _run(s, ["--dump-single-json", "--no-playlist", "--skip-download",
                  f"https://www.youtube.com/watch?v={video_id}"], timeout=180)
     if p.returncode != 0 or not p.stdout.strip():
+        _check_bot(p)
         raise SourceRejected(f"cannot read video {video_id}: {_fail_text(p)}")
     return json.loads(p.stdout)
 
@@ -94,6 +119,7 @@ def download_captions(s: Settings, video_id: str, dest_dir: Path) -> Path | None
                  "-o", str(dest_dir / "caps.%(ext)s"), f"https://www.youtube.com/watch?v={video_id}"], timeout=240)
     files = sorted(dest_dir.glob("caps.*.json3"))
     if not files:
+        _check_bot(p)
         if p.returncode != 0:
             log.info("no captions for %s: %s", video_id, _fail_text(p)[-200:])
         return None
@@ -104,12 +130,14 @@ def download_audio(s: Settings, video_id: str, dest_dir: Path) -> Path:
     dest_dir.mkdir(parents=True, exist_ok=True)
     for old in dest_dir.glob("audio.*"):
         old.unlink()
-    p = _run(s, ["-f", "bestaudio[ext=m4a]/bestaudio", "--no-playlist", "-N", "4",
+    # Speech and loudness analysis only need a low bitrate: about 25 MB per hour instead of 60-120 MB.
+    p = _run(s, ["-f", "bestaudio[abr<=80]/worstaudio/bestaudio", "--no-playlist", "-N", "2",
                  "-o", str(dest_dir / "audio.%(ext)s"),
                  f"https://www.youtube.com/watch?v={video_id}"], timeout=3600)
     files = sorted(dest_dir.glob("audio.*"))
     files = [f for f in files if f.suffix not in (".part", ".ytdl")]
     if p.returncode != 0 or not files:
+        _check_bot(p)
         raise RuntimeError(f"audio download failed: {_fail_text(p)}")
     return files[0]
 
@@ -124,12 +152,13 @@ def download_section(s: Settings, video_id: str, start: float, end: float, out_f
         "--merge-output-format", "mp4",
         "--download-sections", f"*{start:.2f}-{end:.2f}",
         "--force-keyframes-at-cuts",
-        "--no-playlist", "-N", "4",
+        "--no-playlist", "-N", "2",
         "-o", str(out_file.with_suffix(".%(ext)s")),
         f"https://www.youtube.com/watch?v={video_id}",
     ], timeout=1800)
     candidates = [f for f in out_file.parent.glob(out_file.stem + ".*") if f.suffix not in (".part", ".ytdl")]
     if p.returncode != 0 or not candidates:
+        _check_bot(p)
         raise RuntimeError(f"section download failed: {_fail_text(p)}")
     got = candidates[0]
     if got != out_file:

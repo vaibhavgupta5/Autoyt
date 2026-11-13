@@ -102,6 +102,56 @@ def _detect_crop(raw: Path) -> tuple[int, int, int, int] | None:
     return (w, h, x, y) if w >= 240 and h >= 240 else None
 
 
+PREP_VERSION = 2  # bump to make every stored gameplay file be fetched and prepared again
+
+
+def _detect_bars(raw: Path, samples: int = 6) -> tuple[int, int, int, int] | None:
+    """Box (w, h, x, y) of the real picture inside black OR blurred bars. None if there are no bars.
+
+    cropdetect only sees black. Blurred bars (a blurred copy of the game filling the frame) are not
+    black but are nearly featureless, so each row/column's detail (std of horizontal/vertical
+    differences), averaged over a few frames, is tiny there and large inside the game picture.
+    """
+    import numpy as np
+
+    W0, H0 = _probe_size(raw)
+    dur = max(1.0, probe_duration(raw))
+    sw = 360
+    sh = int(round(H0 * sw / W0 / 2)) * 2
+    p = subprocess.run(["ffmpeg", "-v", "error", "-i", str(raw), "-vf",
+                        f"fps={samples}/{dur:.2f},scale={sw}:{sh},format=gray", "-f", "rawvideo", "-"],
+                       capture_output=True, timeout=300)
+    frame = sw * sh
+    n = len(p.stdout) // frame
+    if p.returncode != 0 or n == 0:
+        return None
+    f = np.frombuffer(p.stdout[: n * frame], dtype=np.uint8).reshape(n, sh, sw).astype(np.float32)
+    # second differences: blur flattens them to ~0.6 (codec noise), real game detail stays >= 2.5
+    row = np.abs(f[:, :, 2:] - 2 * f[:, :, 1:-1] + f[:, :, :-2]).mean(axis=(0, 2))
+    col = np.abs(f[:, 2:, :] - 2 * f[:, 1:-1, :] + f[:, :-2, :]).mean(axis=(0, 1))
+    col = np.concatenate([[col[0]], col, [col[-1]]]) if col.size == sw - 2 else col
+
+    def span(prof) -> tuple[int, int]:
+        thr = 0.3 * float(np.percentile(prof, 90))
+        idx = np.where(prof > thr)[0]
+        return (int(idx[0]), int(idx[-1]) + 1) if idx.size else (0, len(prof))
+
+    y0, y1 = span(row)
+    x0, x1 = span(col)
+    # Bars come in pairs on ONE axis (top/bottom or left/right). Crop only the axis with the bigger bars,
+    # so smooth sky or road at the other edges of the game is never mistaken for a bar.
+    if 1 - (y1 - y0) / sh >= 1 - (x1 - x0) / sw:
+        x0, x1 = 0, sw
+    else:
+        y0, y1 = 0, sh
+    if y0 < 4 and y1 > sh - 4 and x0 < 4 and x1 > sw - 4:
+        return None
+    sx, sy = W0 / sw, H0 / sh
+    x, y = int(x0 * sx) // 2 * 2, int(y0 * sy) // 2 * 2
+    w, h = int((x1 - x0) * sx) // 2 * 2, int((y1 - y0) * sy) // 2 * 2
+    return (w, h, x, y) if w >= 240 and h >= 240 else None
+
+
 def _probe_size(path: Path) -> tuple[int, int]:
     p = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
                         "stream=width,height", "-of", "csv=p=0:s=x", str(path)],
@@ -131,11 +181,20 @@ def gameplay_filter(w: int, h: int, W: int, B: int, focus: float = 0.68) -> str:
 
 
 def prep_gameplay(s: Settings, raw: Path, dest: Path, start: float = 0.0, length: float | None = None,
-                  focus: float = 0.68) -> None:
+                  focus: float = 0.68, min_content_side: int = 0) -> None:
     """One muted 1080x770 / 30 fps version of [start, start+length], so daily renders stay cheap."""
     lay = s.cfg["layout"]
     W, B = lay["width"], lay["bottom_height"]
-    crop = _detect_crop(raw)
+    try:
+        crop = _detect_bars(raw)
+    except Exception as e:  # noqa: BLE001
+        log.info("bar detection failed (%s); trying cropdetect", e)
+        crop = None
+    crop = crop or _detect_crop(raw)
+    if min_content_side:
+        cw, ch = (crop[0], crop[1]) if crop else _probe_size(raw)
+        if min(cw, ch) < min_content_side:
+            raise ValueError(f"real picture is only {cw}x{ch} inside its bars")
     w, h = (crop[0], crop[1]) if crop else _probe_size(raw)
     chain = f"crop={crop[0]}:{crop[1]}:{crop[2]}:{crop[3]}," if crop else ""
     vf = chain + gameplay_filter(w, h, W, B, focus) + ",fps=30,setsar=1,format=yuv420p"
@@ -196,13 +255,14 @@ def _fetch_one(s: Settings, game: str, c: dict, ev: dict, clip_s: float, skip_mi
         if p.returncode != 0 or not raws:
             raise RuntimeError(ytdlp._fail_text(p))
         dest = gdir / f"{c['id']}.mp4"
-        prep_gameplay(s, raws[0], dest, start=0.0, length=clip_s, focus=focus)
+        prep_gameplay(s, raws[0], dest, start=0.0, length=clip_s, focus=focus, min_content_side=600)
         dur = probe_duration(dest)
         expected = min(clip_s, c["duration"] - start)  # a 21 s Short legitimately gives 21 s
         if dur < expected - 2:
             dest.unlink(missing_ok=True)
             raise RuntimeError(f"only {dur:.0f}s of footage came back, expected about {expected:.0f}s")
         return {"game": game, "file": f"{game}/{dest.name}", "video_id": c["id"], "title": c["title"],
+                "prep": PREP_VERSION,
                 "duration": dur, "source_size": f"{ev['w']}x{ev['h']}",
                 "source_url": f"https://www.youtube.com/watch?v={c['id']}"}
     finally:
@@ -260,6 +320,43 @@ def fetch_gameplay(s: Settings) -> list[dict]:
         if need > 0:
             log.warning("%s: still missing %d videos; re-run later or add `urls:` in config/gameplay.yaml", game, need)
     return index
+
+
+def ensure_library(s: Settings) -> int:
+    """Daily upkeep: drop files prepared by an older version (bar-crop fix), then fill any gaps.
+
+    Each file is one minute of video, so a full rebuild is about 6 small downloads. Returns files fetched.
+    """
+    if not (s.yaml_file("gameplay.yaml") or {}).get("games"):
+        return 0
+    root = s.assets_dir / "gameplay"
+    index_path = root / "index.json"
+    index = _load_index(index_path)
+    keep = [e for e in index if int(e.get("prep", 1)) >= PREP_VERSION and (root / e["file"]).exists()]
+    stale = [e for e in index if e not in keep and (root / e["file"]).exists()]
+    if stale:
+        log.info("gameplay library: re-preparing %d older files", len(stale))
+        # Old files are renamed aside, not deleted, until their replacements exist: a failed download
+        # (bot check, network) must never leave the podcast clips without any gameplay.
+        for e in stale:
+            (root / e["file"]).rename((root / e["file"]).with_suffix(".old.mp4"))
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        index_path.write_text(json.dumps(keep, indent=2))
+    before = len(keep)
+    try:
+        new = fetch_gameplay(s)
+    finally:
+        cur = _load_index(index_path)
+        games = {e["game"] for e in cur}
+        for e in stale:
+            old = (root / e["file"]).with_suffix(".old.mp4")
+            if e["game"] in games:
+                old.unlink(missing_ok=True)
+            elif old.exists():
+                old.rename(root / e["file"])
+                cur.append(e)
+        index_path.write_text(json.dumps(cur, indent=2))
+    return max(0, len(new) - before)
 
 
 def choose_gameplay(s: Settings, db: Database | None, duration: float,

@@ -15,3 +15,7 @@ class UploadLimit(Exception):
 
 class StepFailed(Exception):
     """A step ran out of retries."""
+
+
+class BotBlocked(Exception):
+    """YouTube answered 'confirm you're not a bot'. The whole pipeline backs off; no video is blamed."""

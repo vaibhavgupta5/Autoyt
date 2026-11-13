@@ -16,17 +16,23 @@ SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube.readonly",
 ]
+# Optional, only with `autoyt auth --extended`: posting a question comment and reading retention.
+EXTRA_SCOPES = [
+    "https://www.googleapis.com/auth/youtube.force-ssl",
+    "https://www.googleapis.com/auth/yt-analytics.readonly",
+]
 RETRIABLE_STATUS = {500, 502, 503, 504}
-CATEGORY = {"funny": "23", "informative": "27", "deep": "22"}  # Comedy, Education, People & Blogs
+# Comedy, Education, People & Blogs, Gaming. Anything else (None) falls back to Entertainment (24).
+CATEGORY = {"funny": "23", "informative": "27", "deep": "22", "gaming": "20"}
 
 
-def run_auth(s: Settings, bind: str = "0.0.0.0", port: int = 8765) -> None:
+def run_auth(s: Settings, bind: str = "0.0.0.0", port: int = 8765, extended: bool = False) -> None:
     from google_auth_oauthlib.flow import InstalledAppFlow
 
     secret = s.secrets_dir / "client_secret.json"
     if not secret.exists():
         raise ActionNeeded(f"{secret} not found. Download the OAuth Desktop client JSON from Google Cloud.")
-    flow = InstalledAppFlow.from_client_secrets_file(str(secret), SCOPES)
+    flow = InstalledAppFlow.from_client_secrets_file(str(secret), SCOPES + (EXTRA_SCOPES if extended else []))
     creds = flow.run_local_server(
         host="localhost", bind_addr=bind, port=port, open_browser=False,
         access_type="offline", prompt="consent",
@@ -48,7 +54,8 @@ def get_service(s: Settings):
     token = s.secrets_dir / "token.json"
     if not token.exists():
         raise ActionNeeded("YouTube login missing. Run: docker compose run --rm -p 8765:8765 autoyt auth")
-    creds = Credentials.from_authorized_user_file(str(token), SCOPES)
+    # The token's own scopes: asking for more than it was granted would make the refresh fail.
+    creds = Credentials.from_authorized_user_file(str(token))
     if not creds.valid:
         if not creds.refresh_token:
             raise ActionNeeded("YouTube login has no refresh token. Run `autoyt auth` again.")
@@ -119,8 +126,9 @@ def upload_video(service, path: Path, *, title: str, description: str, tags: lis
     return vid
 
 
-def set_thumbnail(service, video_id: str, jpg: Path) -> bool:
-    """Best effort. A refused thumbnail never blocks the upload."""
+def set_thumbnail(service, video_id: str, jpg: Path, status: dict | None = None) -> bool:
+    """Best effort. A refused thumbnail never blocks the upload. `status["forbidden"]` is set on a 403
+    (channel not phone-verified), so the caller can stop asking for a while."""
     from googleapiclient.errors import HttpError
     from googleapiclient.http import MediaFileUpload
 
@@ -129,6 +137,8 @@ def set_thumbnail(service, video_id: str, jpg: Path) -> bool:
                                  media_body=MediaFileUpload(str(jpg), mimetype="image/jpeg")).execute()
         return True
     except HttpError as e:
+        if e.resp.status == 403 and status is not None:
+            status["forbidden"] = True
         log.warning("thumbnail not set for %s: %s %s", video_id, e.resp.status, _reason(e))
     except Exception as e:  # noqa: BLE001
         log.warning("thumbnail not set for %s: %s", video_id, e)
